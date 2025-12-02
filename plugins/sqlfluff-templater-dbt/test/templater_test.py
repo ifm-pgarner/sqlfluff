@@ -738,3 +738,157 @@ def test__dbt_log_supression(dbt_project_folder):
         == "dbt_project/models/my_new_project/operator_errors.sql"
     )
     assert len(first_file["violations"]) == 2
+
+
+def test__templater_dbt_no_introspect_config():
+    """Test that no_introspect config option is read correctly."""
+    from sqlfluff_templater_dbt.templater import DbtTemplater
+    
+    # Test with no_introspect enabled
+    config = FluffConfig(configs={
+        'core': {'dialect': 'postgres'},
+        'templater': {
+            'dbt': {
+                'no_introspect': True
+            }
+        }
+    })
+    
+    templater = DbtTemplater()
+    templater.sqlfluff_config = config
+    result = templater._get_no_introspect()
+    assert result is True, 'Expected no_introspect to be True'
+    
+    # Test with no_introspect disabled
+    config2 = FluffConfig(configs={
+        'core': {'dialect': 'postgres'},
+        'templater': {
+            'dbt': {
+                'no_introspect': False
+            }
+        }
+    })
+    
+    templater2 = DbtTemplater()
+    templater2.sqlfluff_config = config2
+    result2 = templater2._get_no_introspect()
+    assert result2 is False, 'Expected no_introspect to be False'
+    
+    # Test default value (should be False)
+    config3 = FluffConfig(configs={
+        'core': {'dialect': 'postgres'},
+        'templater': {
+            'dbt': {}
+        }
+    })
+    
+    templater3 = DbtTemplater()
+    templater3.sqlfluff_config = config3
+    result3 = templater3._get_no_introspect()
+    assert result3 is False, 'Expected no_introspect default to be False'
+
+
+@mock.patch("dbt.adapters.postgres.impl.PostgresAdapter.acquire_connection")
+@mock.patch("dbt.adapters.postgres.impl.PostgresAdapter.set_relations_cache")
+def test__templater_dbt_no_introspect_skips_connection(
+    mock_set_relations_cache,
+    mock_acquire_connection,
+    project_dir,
+    dbt_templater,
+    dbt_fluff_config,
+):
+    """Test that no_introspect mode skips database connection."""
+    from dbt.adapters.factory import get_adapter
+    
+    # Clear the adapter cache to force this test to create a new connection.
+    DbtTemplater.adapters.clear()
+    
+    # Enable no_introspect mode
+    dbt_fluff_config["templater"]["dbt"]["no_introspect"] = True
+    
+    # Process a simple model
+    target_fpath = os.path.join(
+        project_dir, "models/my_new_project/use_var.sql"
+    )
+    
+    try:
+        templated_file, _ = dbt_templater.process(
+            in_str="",
+            fname=target_fpath,
+            config=FluffConfig(configs=dbt_fluff_config),
+        )
+        
+        # Verify that connection methods were NOT called
+        mock_acquire_connection.assert_not_called()
+        mock_set_relations_cache.assert_not_called()
+        
+        # Verify that templating succeeded
+        assert templated_file is not None
+        assert templated_file.templated_str is not None
+        
+    finally:
+        # Clean up only if adapter was created
+        # When no_introspect is True, the adapter might not be in the cache
+        if dbt_templater.project_dir in DbtTemplater.adapters:
+            get_adapter(dbt_templater.dbt_config).connections.release()
+
+
+@mock.patch("dbt.adapters.postgres.impl.PostgresAdapter.set_relations_cache")
+def test__templater_dbt_no_introspect_handles_connection_failure(
+    set_relations_cache,
+    project_dir,
+    dbt_templater,
+    dbt_fluff_config,
+):
+    """Test that no_introspect mode works even when database connection would fail."""
+    from dbt.adapters.factory import get_adapter
+    
+    try:
+        from dbt.adapters.exceptions import (
+            FailedToConnectError as DbtFailedToConnectException,
+        )
+    except ImportError:
+        try:
+            from dbt.exceptions import (
+                FailedToConnectError as DbtFailedToConnectException,
+            )
+        except ImportError:
+            from dbt.exceptions import (
+                FailedToConnectException as DbtFailedToConnectException,
+            )
+    
+    # Clear the adapter cache to force this test to create a new connection.
+    DbtTemplater.adapters.clear()
+    
+    # Simulate connection failure
+    set_relations_cache.side_effect = DbtFailedToConnectException("dummy error")
+    
+    # Enable no_introspect mode with failing profiles
+    dbt_fluff_config_fail = deepcopy(dbt_fluff_config)
+    dbt_fluff_config_fail["templater"]["dbt"]["no_introspect"] = True
+    dbt_fluff_config_fail["templater"]["dbt"][
+        "profiles_dir"
+    ] = "plugins/sqlfluff-templater-dbt/test/fixtures/dbt/profiles_yml_fail"
+    
+    # Process a simple model
+    target_fpath = os.path.join(
+        project_dir, "models/my_new_project/use_var.sql"
+    )
+    
+    try:
+        # This should succeed despite connection failure because no_introspect is enabled
+        templated_file, _ = dbt_templater.process(
+            in_str="",
+            fname=target_fpath,
+            config=FluffConfig(configs=dbt_fluff_config_fail),
+        )
+        
+        # Verify that templating succeeded
+        assert templated_file is not None
+        assert templated_file.templated_str is not None
+        
+    finally:
+        # Clean up only if adapter was created
+        # When no_introspect is True, the adapter might not be in the cache
+        if dbt_templater.project_dir in DbtTemplater.adapters:
+            get_adapter(dbt_templater.dbt_config).connections.release()

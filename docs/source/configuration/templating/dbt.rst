@@ -46,6 +46,8 @@ Cons:
 
   * Note that you can often point SQLFluff and the :code:`dbt` templater at a
     test database (i.e. it doesn't have to be the production database).
+  * Alternatively, you can use the `no_introspect = True` configuration option
+    to skip database connection entirely (see configuration section below).
 
 * Runs slower
 
@@ -89,6 +91,7 @@ You can set the dbt project directory, profiles directory and profile with:
     profile = <dbt profile>
     target = <dbt target>
     dbt_skip_compilation_error = <True or False, default is True>
+    no_introspect = <True or False, default is False>
 
 .. note::
 
@@ -105,6 +108,27 @@ You can set the dbt project directory, profiles directory and profile with:
     a table at compile time which doesn't exist.
     By default, `dbt_skip_compilation_error` parameter is set to `True`, that's why such errors will be ignored.
     However if you want to see them, you can set it to `False` and SQLFluff will raise a fatal error.
+
+.. note::
+
+    By default, the dbt templater will attempt to connect to your database and introspect schema information
+    during compilation, similar to how dbt normally works. If you want to run SQLFluff without an active
+    database connection (for example, in a CI/CD pipeline or during development when the database is unavailable),
+    you can set `no_introspect = True`. This is similar to running `dbt compile --no-introspect`.
+    
+    When `no_introspect` is enabled:
+    
+    * SQLFluff will skip connecting to the database
+    * Schema introspection will be skipped
+    * You can lint and fix your dbt models without database access
+    * Some dbt features that require runtime database queries may not work correctly
+    
+    Example configuration:
+    
+    .. code-block:: cfg
+    
+        [sqlfluff:templater:dbt]
+        no_introspect = True
 
 To use builtin dbt Jinja functions SQLFluff provides a configuration option
 that enables usage within templates.
