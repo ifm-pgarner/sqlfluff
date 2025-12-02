@@ -69,6 +69,9 @@ class DbtConfigArgs:
     which: Optional[str] = "compile"
     # NOTE: As of dbt 1.8, the following is required to exist.
     REQUIRE_RESOURCE_NAMES_WITHOUT_SPACES: Optional[bool] = None
+    # NOTE: no_introspect allows compilation without database access
+    # similar to `dbt compile --no-introspect`
+    no_introspect: Optional[bool] = None
 
 
 def is_dbt_exception(exception: Optional[BaseException]) -> bool:
@@ -182,6 +185,7 @@ class DbtTemplater(JinjaTemplater):
         self.profiles_dir = None
         self.working_dir = os.getcwd()
         self.dbt_skip_compilation_error = True
+        self.dbt_no_introspect = False
         super().__init__(override_context=override_context)
 
     def config_pairs(self):
@@ -439,6 +443,19 @@ class DbtTemplater(JinjaTemplater):
             default=True,
         )
 
+    def _get_no_introspect(self) -> bool:
+        """Get the no_introspect configuration option.
+        
+        When enabled, SQLFluff will not attempt to connect to the database
+        or introspect schema information, similar to `dbt compile --no-introspect`.
+        This allows linting and fixing without an active database connection.
+        """
+        return self.sqlfluff_config.get(
+            val="no_introspect",
+            section=(self.templater_selector, self.name),
+            default=False,
+        )
+
     def sequence_files(
         self, fnames: list[str], config=None, formatter=None
     ) -> Iterator[str]:
@@ -542,6 +559,7 @@ class DbtTemplater(JinjaTemplater):
         self.project_dir = self._get_project_dir()
         self.profiles_dir = self._get_profiles_dir()
         self.dbt_skip_compilation_error = self._get_dbt_skip_compilation_error()
+        self.dbt_no_introspect = self._get_no_introspect()
         fname_absolute_path = os.path.abspath(fname) if fname != "stdin" else fname
 
         # NOTE: dbt exceptions are caught and handled safely for pickling by the outer
@@ -838,6 +856,17 @@ class DbtTemplater(JinjaTemplater):
     def connection(self):
         """Context manager that manages a dbt connection, if needed."""
         from dbt.adapters.factory import get_adapter
+
+        # Skip database connection if no_introspect is enabled
+        if self.dbt_no_introspect:
+            # When no_introspect is enabled, we skip connecting to the database
+            # and introspecting schema information. This allows linting and fixing
+            # without an active database connection, similar to `dbt compile --no-introspect`.
+            templater_logger.info(
+                "no_introspect is enabled - skipping database connection"
+            )
+            yield
+            return
 
         # We have to register the connection in dbt >= 1.0.0 ourselves
         # In previous versions, we relied on the functionality removed in
