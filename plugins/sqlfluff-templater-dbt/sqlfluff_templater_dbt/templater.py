@@ -445,7 +445,7 @@ class DbtTemplater(JinjaTemplater):
 
     def _get_no_introspect(self) -> bool:
         """Get the no_introspect configuration option.
-        
+
         When enabled, SQLFluff will not attempt to connect to the database
         or introspect schema information, similar to `dbt compile --no-introspect`.
         This allows linting and fixing without an active database connection.
