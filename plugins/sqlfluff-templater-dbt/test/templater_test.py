@@ -828,10 +828,9 @@ def test__templater_dbt_no_introspect_skips_connection(
         
     finally:
         # Clean up only if adapter was created
-        try:
+        # When no_introspect is True, the adapter might not be in the cache
+        if dbt_templater.project_dir in DbtTemplater.adapters:
             get_adapter(dbt_templater.dbt_config).connections.release()
-        except Exception:
-            pass  # Adapter might not have been created
 
 
 @mock.patch("dbt.adapters.postgres.impl.PostgresAdapter.set_relations_cache")
@@ -890,7 +889,6 @@ def test__templater_dbt_no_introspect_handles_connection_failure(
         
     finally:
         # Clean up only if adapter was created
-        try:
+        # When no_introspect is True, the adapter might not be in the cache
+        if dbt_templater.project_dir in DbtTemplater.adapters:
             get_adapter(dbt_templater.dbt_config).connections.release()
-        except Exception:
-            pass  # Adapter might not have been created
